@@ -1,7 +1,7 @@
 <!DOCTYPE HTML>
 <html>
 <head>
-<title>Super-Mario</title>
+<title>BomberMan</title>
 <meta charset="utf-8">
 <style>
 body {
@@ -14,137 +14,406 @@ body {
 </head>
 <body>
 	<script type="text/javascript">
-		var game = new Phaser.Game(256, 240, Phaser.CANVAS, '', {
+		var game = new Phaser.Game(356, 240, Phaser.CANVAS, '', {
 			preload : preload,
 			create : create,
 			update : update
 		}, false, false);
-
-		function preload() {
+		
+		
+		// game statistics class which handles all the statistics-related data
+		class GameStats {
+		
+			constructor( ) {
+				this.lifes 		= 3;
+				this.score 		= 0;
+				this.kills		= 0;
+				this.bombs		= 0;
+				this.level 		= 1;
+				this.scoreboard = { lifes: { icon: null, data: null }, score: { icon: null, data: null }, bombs: { icon: null, data: null } };
+				
+				this.scoreboard.lifes.icon = ConstructLifesScoreboard( 34, 32 );
+				this.scoreboard.lifes.data = ConstructGameText( 53, 32, 3 );
+				this.scoreboard.bombs.icon = ConstructBombScoreboard( 34, 49 );
+				this.scoreboard.bombs.data = ConstructGameText( 53, 49, 0 );
+				this.scoreboard.score.icon = ConstructScoreScoreboard( 34, 66 );
+				this.scoreboard.score.data = ConstructGameText( 53, 66, 0 );
+				
+			}
+			
+			GameOver( text ) {
+				
+				EndScreen.visible = true;
+				var EndScreenData1 = ConstructGameText( 180, 110, text );
+				var EndScreenData2 = ConstructGameText( 180, 130, "Score: " + this.score );
+				
+			}
+			
+			// remove one life and then return the value, using decrement operator 
+			UpdateLifes( ) {
+				this.lifes--;
+				this.scoreboard.lifes.data.text = this.lifes;
+				return this.lifes;
+			}
+			KillEnemy( ) {
+				this.kills++;
+				this.UpdateScore( );
+			}
+			UpdateScore( ) {
+				this.scoreboard.score.data.text = ( 5 * this.bombs ) + ( 10 * this.kills );
+			}
+			// when a bomb is being taken add it to this;
+			AddBomb( ) { 
+				this.bombs++; 
+				this.scoreboard.bombs.data.text = this.bombs;
+				this.UpdateScore( );
+			}
+		}
+		
+		
+		// sounds class which handles all the audio files of our game
+		class Sounds {
+		
+			constructor( ) {
+				this.background 	= new Audio( "audio/background.mp3" );
+				this.balloon_kill 	= new Audio( "audio/balloon_kill.wav" );
+				this.water_kill 	= new Audio( "audio/water_kill.wav" );
+				this.collect_bomb 	= new Audio( "audio/collect_bomb.wav" );
+				this.death 			= new Audio( "audio/death.wav" );
+				this.finish			= new Audio( "audio/finish.wav" );
+				this.jump			= new Audio( "audio/jump.wav" );
+			}
+			
+			Background( ) 	{ this.background.play( ); }
+			CollectBomb( ) 	{ 
+				this.collect_bomb.pause( );
+				this.collect_bomb.currentTime = 0;
+				this.collect_bomb.play( ); 
+			}
+			BalloonKill( ) 	{ 
+				this.balloon_kill.pause( );
+				this.balloon_kill.currentTime = 0;
+				this.balloon_kill.play( ); 
+			}
+			WaterKill( ) 	{ 
+				this.water_kill.pause( );
+				this.water_kill.currentTime = 0;
+				this.water_kill.play( ); 
+			}
+			Death( ) 		{ this.death.play( ); }
+			Finish( ) 		{ this.finish.play( ); }
+			Jump( ) 		{ 
+				this.jump.pause( );
+				this.jump.currentTime = 0;
+				this.jump.play( ); 
+			}
+			
+			
+			BackgroundStop( ) {
+				this.background.pause( );
+				this.background.currentTime = 0;
+			}
+			
+		}
+		
+		
+		// global variables which are used in most of our functions/methods
+		
+		var stats = null;
+		var sounds = null;
+		var Player = null;
+		
+		// Debugging var for testing, console logging etc;
+		var debug = false;
+		var spaceKey = null;
+		var mainScreen = true;
+		var EndScreen = null;
+		
+		function preload( ) {
 
 			//  We need this because the assets are on github pages
 			//  Remove the next 2 lines if running locally
-			this.load.baseURL = 'https://ioniodi.github.io/Super-Mario/';
+			this.load.baseURL = 'https://harrygsn.github.io/Super-Mario/';
 			this.load.crossOrigin = 'anonymous';
-
-			this.load.spritesheet('tiles', 'assets/super_mario_tiles.png', 16,
-					16);
-			this.load.spritesheet('goomba', 'assets/goomba.png', 16, 16);
-			this.load.spritesheet('mario', 'assets/mario.png', 16, 16);
-			this.load.spritesheet('coin', 'assets/coin.png', 16, 16);
-
-			this.load.tilemap('level', 'assets/super_mario_map.json', null,
-					Phaser.Tilemap.TILED_JSON);
+			
+			this.load.spritesheet('tiles', 'assets/tiles.png', 16, 16);
+			this.load.spritesheet('water_enemy', 'assets/water_enemy.png', 16, 16);
+			this.load.spritesheet('balloon_enemy', 'assets/balloon_enemy.png', 16, 16);
+			this.load.spritesheet('bomberman', 'assets/bomberman.png', 16, 16);
+			this.load.spritesheet('bomb', 'assets/bombs.png', 16, 16);
+			this.load.spritesheet('portal_blue', 'assets/portal_blue.png', 16, 16);
+			this.load.spritesheet('portal_orange', 'assets/portal_orange.png', 16, 16);
+			this.load.image('main', 'assets/main.png' );
+			this.load.image('end_screen', 'assets/end.png' );
+			this.load.tilemap('level', 'assets/bomberman_map.json', null, Phaser.Tilemap.TILED_JSON);
+			
+			// icons
+			this.load.spritesheet('door', 'assets/door.png', 16, 16);
+			this.load.spritesheet('bomb_icon', 'assets/bomb.png', 16, 16);
+			this.load.spritesheet('heart_icon', 'assets/heart.png', 16, 16);
+			this.load.spritesheet('score_icon', 'assets/score.png', 16, 16);
+			
 		}
 
-		function create() {
+		function create( ) {
 			Phaser.Canvas.setImageRenderingCrisp(game.canvas)
 			game.scale.pageAlignHorizontally = true;
 			game.scale.pageAlignVertically = true
 			game.scale.scaleMode = Phaser.ScaleManager.SHOW_ALL;
 			game.physics.startSystem(Phaser.Physics.ARCADE);
 
-			game.stage.backgroundColor = '#5c94fc';
+			game.stage.backgroundColor = '#1F8B00';
 
 			map = game.add.tilemap('level');
 			map.addTilesetImage('tiles', 'tiles');
-			map.setCollisionBetween(3, 12, true, 'solid');
+			
+			map.setCollisionBetween( 21, 24, true, 'solid' );
 
 			map.createLayer('background');
 
 			layer = map.createLayer('solid');
 			layer.resizeWorld();
 
-			coins = game.add.group();
-			coins.enableBody = true;
-			map.createFromTiles(2, null, 'coin', 'stuff', coins);
-			coins.callAll('animations.add', 'animations', 'spin',
-					[ 0, 0, 1, 2 ], 3, true);
-			coins.callAll('animations.play', 'animations', 'spin');
+			bombs = game.add.group();
+			bombs.enableBody = true;
+			map.createFromTiles( 25, null, 'bomb', 'stuff', bombs);
+			bombs.callAll('animations.add', 'animations', 'spin', [ 0, 1, 2 ], 3, true);
+			bombs.callAll('animations.play', 'animations', 'spin');
+		
+			portal_blue = game.add.group();
+			portal_blue.enableBody = true;
+			map.createFromTiles( 20, null, 'portal_blue', 'stuff', portal_blue);
+			portal_blue.callAll('animations.add', 'animations', 'spin', [ 0, 1, 2, 4 ], 4, true);
+			portal_blue.callAll('animations.play', 'animations', 'spin');
+			
+			portal_orange = game.add.group();
+			portal_orange.enableBody = true;
+			map.createFromTiles( 15, null, 'portal_orange', 'stuff', portal_orange);
+			portal_orange.callAll('animations.add', 'animations', 'spin', [ 0, 1, 2, 4 ], 4, true);
+			portal_orange.callAll('animations.play', 'animations', 'spin');
+			
+			water_enemy = game.add.group();
+			water_enemy.enableBody = true;
+			map.createFromTiles( 11, null, 'water_enemy', 'stuff', water_enemy );
+			water_enemy.callAll('animations.add', 'animations', 'walk', [ 0, 1 ], 2, true);
+			water_enemy.callAll('animations.play', 'animations', 'walk');
+			water_enemy.setAll('body.bounce.x', 1);
+			water_enemy.setAll('body.velocity.x', -20);
+			water_enemy.setAll('body.gravity.y', 500);
+			
+			balloon_enemy = game.add.group();
+			balloon_enemy.enableBody = true;
+			map.createFromTiles( 16, null, 'balloon_enemy', 'stuff', balloon_enemy );
+			balloon_enemy.callAll('animations.add', 'animations', 'walk', [ 0 ], 2, true);
+			balloon_enemy.callAll('animations.play', 'animations', 'walk');
+			balloon_enemy.setAll('body.bounce.x', 1);
+			balloon_enemy.setAll('body.velocity.x', 30);
+			balloon_enemy.setAll('body.gravity.y', 500);
+			
+			
+			door = game.add.group( );
+			door.enableBody = true;
+			map.createFromTiles( 21, null, 'door', 'stuff', door );
 
-			goombas = game.add.group();
-			goombas.enableBody = true;
-			map.createFromTiles(1, null, 'goomba', 'stuff', goombas);
-			goombas.callAll('animations.add', 'animations', 'walk', [ 0, 1 ],
-					2, true);
-			goombas.callAll('animations.play', 'animations', 'walk');
-			goombas.setAll('body.bounce.x', 1);
-			goombas.setAll('body.velocity.x', -20);
-			goombas.setAll('body.gravity.y', 500);
-
-			player = game.add.sprite(16, game.world.height - 48, 'mario');
-			game.physics.arcade.enable(player);
-			player.body.gravity.y = 370;
-			player.body.collideWorldBounds = true;
-			player.animations.add('walkRight', [ 1, 2, 3 ], 10, true);
-			player.animations.add('walkLeft', [ 8, 9, 10 ], 10, true);
-			player.goesRight = true;
-
-			game.camera.follow(player);
+			CreateBomberman( true, true );
+			
+			
+			stats = new GameStats( );
+			sounds = new Sounds( );
+			
+			sounds.Background( );
 
 			cursors = game.input.keyboard.createCursorKeys();
+			
+			
+			//game.paused = true;
+			StartScreen = this.add.sprite( 0, 0, 'main' );
+			EndScreen = this.add.sprite( 0, 0, 'end_screen' );
+			EndScreen.visible = false;
+			spaceKey = game.input.keyboard.addKey(Phaser.Keyboard.SPACEBAR);
+			
 		}
-
+		
+		function ConstructGameText( x, y, value ) {
+			var obj = null;
+			obj = game.add.text( x, y, value, { fontSize: '14px', fill: '#c0c0c0', stroke:"#000", strokeThickness: 0.5 } );
+			obj.fixedToCamera = true;
+			return obj;
+		}
+		
+		function ConstructBombScoreboard( x, y ) {
+			var obj = null;
+			obj = game.add.image( x, y, 'bomb_icon' );
+			obj.fixedToCamera = true;
+			return obj
+		}
+		
+		function ConstructLifesScoreboard( x, y ) {
+			var obj = null;
+			obj = game.add.image( x, y, 'heart_icon' );
+			obj.fixedToCamera = true;
+			return obj
+		}
+		
+		function ConstructScoreScoreboard( x, y ) {
+			var obj = null;
+			obj = game.add.image( x, y, 'score_icon' );
+			obj.fixedToCamera = true;
+			return obj
+		}
+		
 		function update() {
-			game.physics.arcade.collide(player, layer);
-			game.physics.arcade.collide(goombas, layer);
-			game.physics.arcade.overlap(player, goombas, goombaOverlap);
-			game.physics.arcade.overlap(player, coins, coinOverlap);
+			game.physics.arcade.collide(Player, layer);
+			game.physics.arcade.collide(water_enemy, layer);
+			game.physics.arcade.overlap(Player, water_enemy, WaterOverlap);
+			game.physics.arcade.collide(balloon_enemy, layer);
+			game.physics.arcade.overlap(Player, balloon_enemy, BalloonOverlap);
+			game.physics.arcade.overlap(Player, bombs, BombOverLap);
+			game.physics.arcade.overlap(Player, door, DoorOverLap);
 
-			if (player.body.enable) {
-				player.body.velocity.x = 0;
+			if (Player.body.enable) {
+				Player.body.velocity.x = 0;
 				if (cursors.left.isDown) {
-					player.body.velocity.x = -90;
-					player.animations.play('walkLeft');
-					player.goesRight = false;
+					Player.body.velocity.x = -90;
+					Player.animations.play('walkLeft');
+					Player.goesRight = false;
 				} else if (cursors.right.isDown) {
-					player.body.velocity.x = 90;
-					player.animations.play('walkRight');
-					player.goesRight = true;
+					Player.body.velocity.x = 90;
+					Player.animations.play('walkRight');
+					Player.goesRight = true;
 				} else {
-					player.animations.stop();
-					if (player.goesRight)
-						player.frame = 0;
-					else
-						player.frame = 7;
+					Player.animations.stop();
+					Player.frame = 0;
 				}
 
-				if (cursors.up.isDown && player.body.onFloor()) {
-					player.body.velocity.y = -190;
-					player.animations.stop();
+				if (cursors.up.isDown && Player.body.onFloor()) {
+					sounds.Jump( );
+					Player.body.velocity.y = -190;
+					Player.animations.stop();
 				}
-
-				if (player.body.velocity.y != 0) {
-					if (player.goesRight)
-						player.frame = 5;
+				
+				if (Player.body.velocity.y != 0) {
+					if (Player.goesRight)
+						Player.frame = 3;
 					else
-						player.frame = 12;
+						Player.frame = 7;
+				}
+				
+				if ( Player.position.y > 215 ) {
+					//Player.kill( );
+					//game.paused = true;
+					KillBomberman( );				
+				}
+				
+				// check for portal
+				if ( Player.position.y == 176 && stats.level === 1 ) {
+					if ( Player.position.x >= 1531 && Player.position.x <= 1541 ) {
+						Player.position.x = 1664;
+					}
+				}
+			}
+		
+			if ( mainScreen === true ) {
+				if ( spaceKey.isDown ) {
+					StartScreen.destroy( );
 				}
 			}
 		}
 
-		function coinOverlap(player, coin) {
-			coin.kill();
+		function DoorOverLap(player, door) {
+			sounds.BackgroundStop( );
+			sounds.Finish( );
+			// game finished
+			if ( debug ) 
+				console.log("%c Game Finished! ", 'background: #c0c0c0; color: #000' );
+			
+			Player.animations.stop( )
+			player.animations.play( "finish" );
+			stats.GameOver( "You Won!" );
+			game.paused = true;
 		}
-
-		function goombaOverlap(player, goomba) {
+		
+		function BombOverLap(player, bomb) {
+			bomb.kill();
+			sounds.CollectBomb( )
+			stats.AddBomb( );
+		}
+		
+		function WaterOverlap( player, enemy ) {
+			EnemyOverlap( player, enemy, 2, "water" );
+		}
+		
+		function BalloonOverlap( player, enemy ) {
+			EnemyOverlap( player, enemy, 1, "balloon" );
+		}
+		
+		function EnemyOverlap(player, enemy, deathFrame, enemyStr) {
 			if (player.body.touching.down) {
-				goomba.animations.stop();
-				goomba.frame = 2;
-				goomba.body.enable = false;
+				enemy.animations.stop();
+				enemy.frame = deathFrame;
+				enemy.body.enable = false;
 				player.body.velocity.y = -80;
+				if ( enemyStr == "water" )
+					sounds.WaterKill( );
+				else if ( enemyStr == "balloon" )
+					sounds.BalloonKill( );
+				stats.KillEnemy( );
 				game.time.events.add(Phaser.Timer.SECOND, function() {
-					goomba.kill();
+					enemy.kill();
 				});
 			} else {
-				player.frame = 6;
-				player.body.enable = false;
-				player.animations.stop();
-				game.time.events.add(Phaser.Timer.SECOND * 3, function() {
-					game.paused = true;
-				});
+				KillBomberman( );
 			}
 		}
+		
+		function CreateBomberman( goesRight, SpawnFromStart ) {
+			Player = game.add.sprite(16, game.world.height - 48, 'bomberman');
+			game.physics.arcade.enable( Player );
+			Player.body.gravity.y = 370;
+			Player.body.collideWorldBounds = true;
+			Player.animations.add('walkRight', [ 1, 2, 3 ], 16, true);
+			Player.animations.add('walkLeft', [ 6, 7, 8 ], 16, true);
+			Player.animations.add('finish', [ 7, 0, 7, 0, 7 ], 16, false);
+			Player.animations.add('death', [ 10, 11, 12, 13, 14 ], 16, false);
+			Player.goesRight = goesRight;
+
+			Player.body.enable = true;
+			game.camera.follow( Player );
+			
+			// initialize player position:
+			if ( SpawnFromStart ) {
+				Player.position.x = 32;
+				Player.position.y = 192;
+				if ( debug ) 
+					console.log( "%c Initializing Spawn ", 'background: #c0c0c0; color: #000' );
+			}
+		}
+		
+		function KillBomberman( ) {
+			Player.animations.stop();
+			Player.animations.play("death");
+			sounds.Death( );
+			Player.body.enable = false;
+			game.time.events.add(Phaser.Timer.SECOND * 2, function() {
+				
+				var lifes = stats.UpdateLifes( );
+				if ( lifes > 0 ) {
+					Player.kill( );
+					if ( debug ) 
+						console.log( "%c Died : " + lifes + " ", 'background: #c0c0c0; color: #000' );
+					CreateBomberman( true, true );
+				}
+				else {
+					GameOver( );
+				}
+			});
+		}
+		
+		function GameOver( ) {
+			sounds.BackgroundStop( );
+			stats.GameOver( "You Lost All of your Lifes" );
+		}
+		
 	</script>
 </body>
 </html>
